@@ -1,3 +1,14 @@
+"""
+Interactive Image Restoration Application
+
+A comprehensive Streamlit application for image restoration using various
+computer vision techniques including median blur, bilateral filtering,
+and advanced inpainting algorithms.
+
+Author: [Your Name]
+Date: [Current Date]
+"""
+
 import streamlit as st
 import cv2
 import numpy as np
@@ -234,7 +245,7 @@ def handle_blur_filters(image: np.ndarray, option: str,
 
 
 def handle_inpainting(image: np.ndarray, uploaded_file, 
-                               processor: ImageProcessor, ui: UIComponents):
+                     processor: ImageProcessor, ui: UIComponents):
     """Inpainting with persistent background image handling."""
     st.subheader("🎨 Interactive Inpainting")
     st.markdown("Draw on the image to mark areas you want to restore:")
@@ -400,6 +411,7 @@ def handle_inpainting(image: np.ndarray, uploaded_file,
     if hasattr(st.session_state, 'current_result'):
         with st.expander("📋 Previous Result"):
             st.image(st.session_state.current_result, caption="Last inpainting result")
+
 
 def main():
     """Main application function."""

@@ -28,13 +28,20 @@ Transform old or damaged photos using professional computer vision techniques th
 <td width="50%">
 
 ### Main Interface
-![Main Interface](assets/screenshots/main_interface.png)
+![Main Interface](assets/App_view.jpg)
 
 </td>
 <td width="50%">
 
-### Interactive Inpainting
-![Inpainting Demo](assets/screenshots/inpainting_demo.png)
+### Before
+![Old Image](assets/old_image.jpg)
+
+</td>
+</tr>
+</table>
+
+### After
+![Processed Image](assets/processed_photo.jpg)
 
 </td>
 </tr>

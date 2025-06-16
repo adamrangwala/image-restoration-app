@@ -26,6 +26,7 @@ Transform old or damaged photos using professional computer vision techniques th
 
 ### Main Interface
 ![Main Interface](assets/App_view.jpg)
+<img src="assets/App_view.jpg" width="50%">
 
 <table>
 <tr>

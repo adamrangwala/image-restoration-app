@@ -243,42 +243,9 @@ def handle_blur_filters(image: np.ndarray, option: str,
                 unsafe_allow_html=True
             )
 
-def debug_canvas_setup():
-    """Debug function to test canvas component."""
-    st.subheader("🔧 Canvas Debug Mode")
-    
-    # Create a simple test image
-    test_image = np.ones((300, 400, 3), dtype=np.uint8) * 255
-    cv2.rectangle(test_image, (50, 50), (350, 250), (255, 0, 0), 3)
-    cv2.putText(test_image, "Test Image", (100, 150), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
-    
-    pil_test = Image.fromarray(test_image)
-    
-    try:
-        canvas_result = st_canvas(
-            fill_color='rgba(0, 0, 0, 0)',
-            stroke_width=5,
-            stroke_color='#00FF00',
-            background_image=pil_test,
-            update_streamlit=True,
-            height=300,
-            width=400,
-            drawing_mode='freedraw',
-            key="debug_canvas",
-        )
-        
-        if canvas_result.image_data is not None:
-            st.success("✅ Canvas is working!")
-            st.image(canvas_result.image_data, caption="Canvas output")
-        else:
-            st.warning("Canvas created but no image data")
-            
-    except Exception as e:
-        st.error(f"Canvas failed: {e}")
-
 def handle_inpainting(image: np.ndarray, uploaded_file, 
                      processor: ImageProcessor, ui: UIComponents):
-    """Enhanced inpainting with multiple fallback methods for background image."""
+
     st.subheader("🎨 Interactive Inpainting")
     st.markdown("Draw on the image to mark areas you want to restore:")
     
@@ -334,67 +301,20 @@ def handle_inpainting(image: np.ndarray, uploaded_file,
     # Create canvas with multiple fallback options
     canvas_result = None
     
-    # Try different canvas configurations
-    for attempt in range(3):
-        try:
-            if attempt == 0:
-                # Standard approach
-                canvas_result = st_canvas(
-                    fill_color='rgba(0, 0, 0, 0)',
-                    stroke_width=stroke_width,
-                    stroke_color='#FF0000',
-                    background_color='',
-                    background_image=background_image,
-                    update_streamlit=True,
-                    height=canvas_h,
-                    width=canvas_w,
-                    drawing_mode='freedraw',
-                    key=f"{canvas_key}_attempt_{attempt}",
-                    display_toolbar=True,
-                )
-            elif attempt == 1:
-                # With white background fallback
-                canvas_result = st_canvas(
-                    fill_color='rgba(0, 0, 0, 0)',
-                    stroke_width=stroke_width,
-                    stroke_color='#FF0000',
-                    background_color='#FFFFFF',
-                    background_image=background_image,
-                    update_streamlit=True,
-                    height=canvas_h,
-                    width=canvas_w,
-                    drawing_mode='freedraw',
-                    key=f"{canvas_key}_attempt_{attempt}",
-                    display_toolbar=True,
-                )
-            else:
-                # Simplified version without background
-                st.warning("Background image failed to load. Using simplified canvas.")
-                canvas_result = st_canvas(
-                    fill_color='rgba(255, 255, 255, 0.8)',
-                    stroke_width=stroke_width,
-                    stroke_color='#FF0000',
-                    background_color='#F0F0F0',
-                    update_streamlit=True,
-                    height=canvas_h,
-                    width=canvas_w,
-                    drawing_mode='freedraw',
-                    key=f"{canvas_key}_simple",
-                    display_toolbar=True,
-                )
-                # Show original image separately
-                st.image(cv2.cvtColor(image, cv2.COLOR_BGR2RGB), 
-                        caption="Original Image (draw mask on canvas above)", 
-                        width=canvas_w)
-            
-            # If we get here, canvas was created successfully
-            break
-            
-        except Exception as canvas_error:
-            st.warning(f"Canvas attempt {attempt + 1} failed: {canvas_error}")
-            if attempt == 2:  # Last attempt
-                st.error("Canvas component failed to load. Please refresh the page.")
-                return
+    # Standard approach
+    canvas_result = st_canvas(
+        fill_color='rgba(0, 0, 0, 0)',
+        stroke_width=stroke_width,
+        stroke_color='#FF0000',
+        background_color='',
+        background_image=background_image,
+        update_streamlit=True,
+        height=canvas_h,
+        width=canvas_w,
+        drawing_mode='freedraw',
+        key=f"{canvas_key}_attempt_{attempt}",
+        display_toolbar=True,
+    )
     
     # Process canvas result
     if canvas_result and canvas_result.image_data is not None:

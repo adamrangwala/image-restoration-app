@@ -8,7 +8,7 @@
 
 **Restore damaged photos with computer vision algorithms**
 
-[![Live Demo](https://img.shields.io/badge/🚀_Try_Live_Demo-success?style=for-the-badge)](https://your-app-url.streamlit.app)
+[![Live Demo](https://img.shields.io/badge/🚀_Try_Live_Demo-success?style=for-the-badge)](https://image-restoration-app.streamlit.app/)
 [![GitHub Stars](https://img.shields.io/github/stars/yourusername/image-restoration-app?style=for-the-badge)](https://github.com/yourusername/image-restoration-app/stargazers)
 
 </div>

@@ -233,7 +233,7 @@ def handle_blur_filters(image: np.ndarray, option: str,
             )
 
 
-def handle_inpainting_fixed(image: np.ndarray, uploaded_file, 
+def handle_inpainting(image: np.ndarray, uploaded_file, 
                           processor: ImageProcessor, ui: UIComponents):
     """Fixed inpainting with proper background image handling."""
     st.subheader("🎨 Interactive Inpainting")

@@ -1,3 +1,5 @@
+# Add this to your .streamlit/config.toml for canvas compatibility
+
 [theme]
 primaryColor = "#FF6B6B"
 backgroundColor = "#FFFFFF"
@@ -5,8 +7,20 @@ secondaryBackgroundColor = "#F0F2F6"
 textColor = "#262730"
 
 [server]
-maxUploadSize = 200
+maxUploadSize = 50
 enableCORS = false
+enableXsrfProtection = false
+# This is crucial for canvas component
+enableStaticServing = true
 
 [browser]
 gatherUsageStats = false
+
+[client]
+caching = true
+
+# Canvas-specific settings
+[runner]
+magicEnabled = true
+installTracer = false
+fixMatplotlib = true

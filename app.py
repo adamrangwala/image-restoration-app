@@ -233,160 +233,145 @@ def handle_blur_filters(image: np.ndarray, option: str,
             )
 
 
-def handle_inpainting(image: np.ndarray, uploaded_file, 
-                        processor: ImageProcessor, ui: UIComponents):
-    """Robust inpainting with enhanced error handling."""
+def handle_inpainting_fixed(image: np.ndarray, uploaded_file, 
+                          processor: ImageProcessor, ui: UIComponents):
+    """Fixed inpainting with proper background image handling."""
     st.subheader("🎨 Interactive Inpainting")
     st.markdown("Draw on the image to mark areas you want to restore:")
-
-    # Import with error handling
-    try:
-        from streamlit_drawable_canvas import st_canvas
-    except ImportError as e:
-        st.error("Canvas component not available. Please check your installation.")
-        st.code("pip install streamlit-drawable-canvas==0.9.3")
-        return
-
-    # Canvas setup with error handling
+    
+    # Canvas setup
     stroke_width = st.sidebar.slider("Brush Size:", 1, 25, 5)
     h, w = image.shape[:2]
-
+    
     # Resize for canvas if too large
     if w > 800:
         canvas_h, canvas_w = int(h * 800 / w), 800
     else:
         canvas_h, canvas_w = h, w
-
-    # Create canvas with try-catch
-    try:
-        # Reset uploaded_file position
-        uploaded_file.seek(0)
+    
+    # IMPORTANT: Convert image to PIL format for canvas background
+    # Reset file pointer to beginning
+    uploaded_file.seek(0)
+    
+    # Create PIL image from uploaded file (this preserves the original format)
+    pil_image = Image.open(uploaded_file)
+    
+    # Resize the PIL image to match canvas dimensions
+    background_image = pil_image.resize((canvas_w, canvas_h))
+    
+    # Alternative method if the above doesn't work:
+    # Convert OpenCV image to PIL and resize
+    # image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    # pil_image = Image.fromarray(image_rgb)
+    # background_image = pil_image.resize((canvas_w, canvas_h))
+    
+    # Create canvas with properly formatted background
+    canvas_result = st_canvas(
+        fill_color='rgba(0, 0, 0, 0)',  # Transparent fill
+        stroke_width=stroke_width,
+        stroke_color='#FF0000',  # Red stroke for visibility
+        background_color='',  # Empty background color (transparent)
+        background_image=background_image,  # Use the properly formatted PIL image
+        update_streamlit=True,
+        height=canvas_h,
+        width=canvas_w,
+        drawing_mode='freedraw',
+        key="inpainting_canvas",
+        display_toolbar=True,  # Show toolbar for better UX
+    )
+    
+    # Show a preview of what we're using as background (for debugging)
+    if st.sidebar.checkbox("🖼️ Show Background Preview"):
+        st.sidebar.image(background_image, caption="Canvas Background", width=200)
+    
+    if canvas_result.image_data is not None:
+        # Process mask
+        mask = canvas_result.image_data[:, :, 3]  # Alpha channel
+        mask = np.uint8(mask > 0) * 255  # Binary mask
+        mask = cv2.resize(mask, (w, h))  # Resize back to original image size
         
-        canvas_result = st_canvas(
-            fill_color='rgba(0, 0, 0, 0)',
-            stroke_width=stroke_width,
-            stroke_color='#FF0000',
-            background_color='',
-            background_image=Image.open(uploaded_file).resize((canvas_w, canvas_h)),
-            update_streamlit=True,
-            height=canvas_h,
-            width=canvas_w,
-            drawing_mode='freedraw',
-            key="inpainting_canvas",
-            display_toolbar=True,
+        if st.sidebar.checkbox('👁️ Show Mask'):
+            st.subheader("Inpainting Mask")
+            st.image(mask, caption="White areas will be inpainted")
+        
+        # Inpainting method selection
+        st.sidebar.markdown("---")
+        inpaint_method = st.sidebar.selectbox(
+            '🔧 Inpainting Algorithm:',
+            ['None', 'Telea', 'Navier-Stokes', 'Compare Both'],
+            help="Choose the inpainting algorithm to use"
         )
         
-        if canvas_result.image_data is not None:
-            # Process mask with additional error handling
-            try:
-                mask = canvas_result.image_data[:, :, 3]  # Alpha channel
-                mask = np.uint8(mask > 0) * 255  # Binary mask
-                mask = cv2.resize(mask, (w, h))
+        if inpaint_method != 'None' and np.any(mask):
+            if inpaint_method == 'Compare Both':
+                col1, col2 = st.columns(2)
                 
-                if st.sidebar.checkbox('👁️ Show Mask'):
-                    st.subheader("Inpainting Mask")
-                    st.image(mask, caption="Red areas will be inpainted")
+                with col1:
+                    st.subheader("Telea Method")
+                    result_telea = safe_process_image(
+                        processor.apply_inpainting, image, mask, 'telea'
+                    )
+                    if result_telea is not None:
+                        result_telea_rgb = cv2.cvtColor(result_telea, cv2.COLOR_BGR2RGB)
+                        st.image(result_telea_rgb)
                 
-                # Inpainting method selection
-                st.sidebar.markdown("---")
-                inpaint_method = st.sidebar.selectbox(
-                    '🔧 Inpainting Algorithm:',
-                    ['None', 'Telea', 'Navier-Stokes', 'Compare Both'],
-                    help="Choose the inpainting algorithm to use"
-                )
+                with col2:
+                    st.subheader("Navier-Stokes Method")
+                    result_ns = safe_process_image(
+                        processor.apply_inpainting, image, mask, 'ns'
+                    )
+                    if result_ns is not None:
+                        result_ns_rgb = cv2.cvtColor(result_ns, cv2.COLOR_BGR2RGB)
+                        st.image(result_ns_rgb)
                 
-                if inpaint_method != 'None' and np.any(mask):
-                    if inpaint_method == 'Compare Both':
-                        col1, col2 = st.columns(2)
-                        
-                        with col1:
-                            st.subheader("Telea Method")
-                            result_telea = safe_process_image(
-                                processor.apply_inpainting, image, mask, 'telea'
-                            )
-                            if result_telea is not None:
-                                result_telea_rgb = cv2.cvtColor(result_telea, cv2.COLOR_BGR2RGB)
-                                st.image(result_telea_rgb)
-                        
-                        with col2:
-                            st.subheader("Navier-Stokes Method")
-                            result_ns = safe_process_image(
-                                processor.apply_inpainting, image, mask, 'ns'
-                            )
-                            if result_ns is not None:
-                                result_ns_rgb = cv2.cvtColor(result_ns, cv2.COLOR_BGR2RGB)
-                                st.image(result_ns_rgb)
-                        
-                        # Download links for both
-                        if 'result_telea_rgb' in locals() and 'result_ns_rgb' in locals():
-                            st.sidebar.markdown("---")
-                            st.sidebar.markdown("📥 **Download Results:**")
-                            st.sidebar.markdown(
-                                ui.create_download_link(Image.fromarray(result_telea_rgb), 
-                                                        'inpaint_telea.jpg', 'Telea Result'),
-                                unsafe_allow_html=True
-                            )
-                            st.sidebar.markdown(
-                                ui.create_download_link(Image.fromarray(result_ns_rgb), 
-                                                        'inpaint_ns.jpg', 'NS Result'),
-                                unsafe_allow_html=True
-                            )
-                    
-                    else:
-                        method = 'telea' if inpaint_method == 'Telea' else 'ns'
-                        result = safe_process_image(
-                            processor.apply_inpainting, image, mask, method
-                        )
-                        
-                        if result is not None:
-                            result_rgb = cv2.cvtColor(result, cv2.COLOR_BGR2RGB)
-                            
-                            col1, col2 = st.columns(2)
-                            with col1:
-                                st.subheader("Original")
-                                st.image(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
-                            
-                            with col2:
-                                st.subheader(f"Inpainted - {inpaint_method}")
-                                st.image(result_rgb)
-                            
-                            # Download link
-                            st.sidebar.markdown("---")
-                            st.sidebar.markdown(
-                                ui.create_download_link(Image.fromarray(result_rgb), 
-                                                        f'inpaint_{method}.jpg', 
-                                                        f'📥 Download {inpaint_method} Result'),
-                                unsafe_allow_html=True
-                            )
-                
-                elif inpaint_method != 'None' and not np.any(mask):
-                    st.warning("⚠️ Please draw on the image to create a mask for inpainting.")
-                    
-            except Exception as mask_error:
-                st.error(f"Error processing canvas data: {str(mask_error)}")
-                st.info("Try refreshing the page or drawing again.")
-        
-    except Exception as canvas_error:
-        st.error(f"Canvas component error: {str(canvas_error)}")
-        st.info("Canvas component may not be compatible with this Streamlit version.")
-        
-        # Fallback option
-        st.markdown("### Alternative: Upload Mask Method")
-        mask_file = st.file_uploader("Upload a black and white mask image:", type=["png", "jpg"])
-        if mask_file:
-            mask_bytes = np.asarray(bytearray(mask_file.read()), dtype=np.uint8)
-            mask_img = cv2.imdecode(mask_bytes, cv2.IMREAD_GRAYSCALE)
-            mask = cv2.resize(mask_img, (w, h))
+                # Download links for both
+                if 'result_telea_rgb' in locals() and 'result_ns_rgb' in locals():
+                    st.sidebar.markdown("---")
+                    st.sidebar.markdown("📥 **Download Results:**")
+                    st.sidebar.markdown(
+                        ui.create_download_link(Image.fromarray(result_telea_rgb), 
+                                              'inpaint_telea.jpg', 'Telea Result'),
+                        unsafe_allow_html=True
+                    )
+                    st.sidebar.markdown(
+                        ui.create_download_link(Image.fromarray(result_ns_rgb), 
+                                              'inpaint_ns.jpg', 'NS Result'),
+                        unsafe_allow_html=True
+                    )
             
-            method = st.selectbox("Choose method:", ["Telea", "Navier-Stokes"])
-            if st.button("Apply Inpainting"):
+            else:
+                method = 'telea' if inpaint_method == 'Telea' else 'ns'
                 result = safe_process_image(
-                    processor.apply_inpainting, image, mask, method.lower()
+                    processor.apply_inpainting, image, mask, method
                 )
+                
                 if result is not None:
                     result_rgb = cv2.cvtColor(result, cv2.COLOR_BGR2RGB)
-                    st.image(result_rgb)
                     
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.subheader("Original")
+                        st.image(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
+                    
+                    with col2:
+                        st.subheader(f"Inpainted - {inpaint_method}")
+                        st.image(result_rgb)
+                    
+                    # Download link
+                    st.sidebar.markdown("---")
+                    st.sidebar.markdown(
+                        ui.create_download_link(Image.fromarray(result_rgb), 
+                                              f'inpaint_{method}.jpg', 
+                                              f'📥 Download {inpaint_method} Result'),
+                        unsafe_allow_html=True
+                    )
+        
+        elif inpaint_method != 'None' and not np.any(mask):
+            st.warning("⚠️ Please draw on the image to create a mask for inpainting.")
+    
+    else:
+        st.info("Canvas is loading... If the background image doesn't appear, try refreshing the page.")
+
 def main():
     """Main application function."""
     # Header

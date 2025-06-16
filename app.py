@@ -598,6 +598,9 @@ def main():
         - Channels: {c}
         - Size: {uploaded_file.size / 1024:.1f} KB
         """)
+
+        if st.sidebar.button("🔧 Test Canvas"):
+            debug_canvas_setup()
         
         # Filter selection
         st.sidebar.markdown("---")
@@ -621,8 +624,7 @@ def main():
     except Exception as e:
         logger.error(f"Error processing image: {str(e)}")
         st.error(f"An error occurred while processing the image: {str(e)}")
-    if st.sidebar.button("🔧 Test Canvas"):
-        debug_canvas_setup()
+    
 
 if __name__ == "__main__":
     main()

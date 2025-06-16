@@ -10,8 +10,9 @@ textColor = "#262730"
 maxUploadSize = 50
 enableCORS = false
 enableXsrfProtection = false
-# This is crucial for canvas component
 enableStaticServing = true
+baseUrlPath = ""
+
 
 [browser]
 gatherUsageStats = false

@@ -23,22 +23,20 @@ Transform old or damaged photos using professional computer vision techniques th
 - **🎯 Bilateral Filter**: Smooth textures while keeping details sharp  
 - **🖌️ Interactive Inpainting**: Paint over unwanted objects or damage to remove them
 
-<table>
-<tr>
-<td width="50%">
 
 ### Main Interface
 ![Main Interface](assets/App_view.jpg)
 
-</td>
+<table>
+<tr>
 <td width="50%">
+
 
 ### Before
 ![Old Image](assets/old_image.jpg)
-
 </td>
-</tr>
-</table>
+
+<td width = "50%">
 
 ### After
 ![Processed Image](assets/processed_photo.jpg)

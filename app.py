@@ -8,6 +8,8 @@ from PIL import Image
 from streamlit_drawable_canvas import st_canvas
 from typing import Optional, Tuple
 import logging
+import requests
+from io import BytesIO
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -61,18 +63,50 @@ class UIComponents:
     
     @staticmethod
     def setup_sidebar() -> dict:
-        """Configure sidebar components and return user selections."""
+        """Configure sidebar with upload and GitHub sample option."""
         st.sidebar.title('🖼️ Image Restoration Toolkit')
         st.sidebar.markdown("---")
         
+        # Sample image option
+        if st.sidebar.button("🎨 Try Sample Image", help="Load a sample image from our collection"):
+            st.session_state.use_sample = True
+        
+        # Upload option
         uploaded_file = st.sidebar.file_uploader(
-            "📁 Upload Image to Restore:",
+            "📁 Or Upload Your Image:",
             type=["png", "jpg", "jpeg"],
             help="Supported formats: PNG, JPG, JPEG"
         )
         
-        return {"uploaded_file": uploaded_file}
-    
+        # If file is uploaded, clear sample
+        if uploaded_file is not None:
+            st.session_state.use_sample = False
+        
+        # Get sample image if requested
+        sample_image = None
+        sample_file = None
+        
+        if st.session_state.get('use_sample', False):
+            with st.spinner("Loading sample image..."):
+                sample_image, sample_bytes = load_sample_from_github()
+                
+                if sample_image is not None:
+                    sample_file = GitHubSampleFile(sample_bytes)
+                    
+                    # Show sample preview
+                    if st.sidebar.checkbox("👁️ Preview Sample"):
+                        sample_rgb = cv2.cvtColor(sample_image, cv2.COLOR_BGR2RGB)
+                        st.sidebar.image(sample_rgb, caption="Sample Image", width=200)
+                else:
+                    st.sidebar.error("❌ Could not load sample image")
+                    st.session_state.use_sample = False
+        
+        return {
+            "uploaded_file": uploaded_file, 
+            "sample_image": sample_image,
+            "sample_file": sample_file
+        }
+        
     @staticmethod
     def create_filter_controls(option: str) -> dict:
         """Create appropriate controls based on selected filter option."""
@@ -100,6 +134,44 @@ class UIComponents:
         
         return controls
 
+@st.cache_data
+def load_sample_from_github():
+    """Load sample image from GitHub repository assets folder."""
+    # Replace with your actual GitHub repository URL
+    GITHUB_REPO_URL = "https://github.com/adamrangwala/image-restoration-app/main"
+    SAMPLE_IMAGE_PATH = "/assets/old_image.jpg" 
+    
+    sample_url = GITHUB_REPO_URL + SAMPLE_IMAGE_PATH
+    
+    try:
+        # Download image from GitHub
+        response = requests.get(sample_url, timeout=10)
+        
+        if response.status_code == 200:
+            # Convert bytes to PIL Image
+            image_bytes = BytesIO(response.content)
+            pil_image = Image.open(image_bytes)
+            
+            # Convert PIL to OpenCV format
+            image_array = np.array(pil_image)
+            if len(image_array.shape) == 3:
+                # Convert RGB to BGR for OpenCV
+                opencv_image = cv2.cvtColor(image_array, cv2.COLOR_RGB2BGR)
+            else:
+                # Grayscale image
+                opencv_image = cv2.cvtColor(image_array, cv2.COLOR_GRAY2BGR)
+            
+            return opencv_image, image_bytes.getvalue()
+        else:
+            st.warning(f"Could not load sample image. Status code: {response.status_code}")
+            return None, None
+            
+    except requests.exceptions.RequestException as e:
+        st.warning(f"Network error loading sample image: {e}")
+        return None, None
+    except Exception as e:
+        st.warning(f"Error processing sample image: {e}")
+        return None, None
 
 # Performance optimizations for cloud deployment
 @st.cache_data
@@ -441,13 +513,27 @@ def handle_inpainting(image: np.ndarray, uploaded_file,
                         result_rgb = cv2.cvtColor(result, cv2.COLOR_BGR2RGB)
                         st.image(result_rgb, caption=f"Result - {method}")
 
+class GitHubSampleFile:
+    def __init__(self, image_bytes, filename="old_image.jpg"):
+        self.name = filename
+        self.size = len(image_bytes)
+        self._bytes = image_bytes
+        self._position = 0
+    
+    def read(self):
+        return self._bytes
+    
+    def seek(self, pos):
+        self._position = pos
+
+
 def main():
-    """Main application function."""
+    """Main application function with GitHub sample image support."""
     # Header
     st.title("🖼️ Interactive Image Restoration")
     st.markdown("""
     Transform your images using advanced computer vision techniques. 
-    Upload an image and choose from various restoration methods.
+    Upload your own image or try our sample to get started!
     """)
     
     # Add performance info
@@ -458,38 +544,50 @@ def main():
     ui = UIComponents()
     
     # Setup sidebar
-    sidebar_data = ui.setup_sidebar()
+    sidebar_data = setup_sidebar()
     uploaded_file = sidebar_data["uploaded_file"]
+    sample_image = sidebar_data["sample_image"]
+    sample_file = sidebar_data["sample_file"]
     
     # Show deployment info
     show_deployment_info()
     
-    if uploaded_file is None:
+    # Determine which image to use
+    original_image = None
+    current_file = None
+    
+    if uploaded_file is not None:
+        # Use uploaded file
+        if uploaded_file.size > 50 * 1024 * 1024:
+            st.error("File too large! Please upload an image smaller than 50MB.")
+            return
+        
+        original_image = load_and_process_image(uploaded_file)
+        current_file = uploaded_file
+        
+    elif sample_image is not None and sample_file is not None:
+        # Use sample image
+        original_image = sample_image
+        current_file = sample_file
+    
+    if original_image is None:
         # Display welcome screen
         col1, col2, col3 = st.columns([1, 2, 1])
         with col2:
-            st.info("👆 Please upload an image to get started!")
+            st.info("👆 Try our sample image or upload your own to get started!")
             st.markdown("""
-            ### Available Features:
+            ### 🚀 Quick Start:
+            1. Click **"Try Sample Image"** for an instant demo
+            2. Or **upload your own image** to restore
+            
+            ### Available Restoration Methods:
             - **Median Blur**: Remove noise while preserving edges
-            - **Bilateral Filter**: Edge-preserving smoothing
-            - **Image Inpainting**: Remove unwanted objects or restore damaged areas
+            - **Bilateral Filter**: Edge-preserving smoothing  
+            - **Image Inpainting**: Remove unwanted objects or restore damage
             """)
         return
     
     try:
-        # Validate file size first
-        if uploaded_file.size > 50 * 1024 * 1024:  # 50MB limit
-            st.error("File too large! Please upload an image smaller than 50MB.")
-            return
-        
-        # Load image with caching
-        original_image = load_and_process_image(uploaded_file)
-        
-        if original_image is None:
-            st.error("Failed to load image. Please try a different file.")
-            return
-        
         # Display image warnings
         display_image_warning(original_image)
         
@@ -499,15 +597,21 @@ def main():
                 original_image = resize_large_image(original_image)
                 st.success("Image resized successfully!")
         
-        # Display original image info
+        # Display image info
         h, w, c = original_image.shape
+        image_source = "Sample Image" if sample_image is not None else "Uploaded Image"
         st.sidebar.markdown(f"""
         **Image Info:**
+        - Source: {image_source}
         - Dimensions: {w} × {h}
         - Channels: {c}
-        - Size: {uploaded_file.size / 1024:.1f} KB
         """)
-
+        
+        if uploaded_file:
+            st.sidebar.markdown(f"- Size: {uploaded_file.size / 1024:.1f} KB")
+        elif sample_file:
+            st.sidebar.markdown(f"- Size: {sample_file.size / 1024:.1f} KB")
+        
         # Filter selection
         st.sidebar.markdown("---")
         option = st.sidebar.selectbox(
@@ -520,17 +624,23 @@ def main():
         if option == 'None':
             st.subheader("Original Image")
             st.image(cv2.cvtColor(original_image, cv2.COLOR_BGR2RGB))
+            
+            if sample_image is not None:
+                st.markdown("""
+                🎯 **Try the restoration methods above to see the magic in action!**
+                
+                Each method is designed for different types of image problems.
+                """)
         
         elif option in ['Median Blur', 'Bilateral Blur']:
             handle_blur_filters(original_image, option, processor, ui)
         
         elif option == 'Image Inpainting':
-            handle_inpainting(original_image, uploaded_file, processor, ui)
+            handle_inpainting(original_image, current_file, processor, ui)
     
     except Exception as e:
-        logger.error(f"Error processing image: {str(e)}")
+        logger.error(f"Error processing image: {str(e}")
         st.error(f"An error occurred while processing the image: {str(e)}")
-    
 
 if __name__ == "__main__":
     main()

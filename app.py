@@ -1,15 +1,25 @@
+"""
+Interactive Image Restoration Application
+
+A comprehensive Streamlit application for image restoration using various
+computer vision techniques including median blur, bilateral filtering,
+and advanced inpainting algorithms.
+
+Author: [Your Name]
+Date: [Current Date]
+"""
+
 import streamlit as st
 import cv2
 import numpy as np
 import io
 import base64
 import gc
+import requests
 from PIL import Image
 from streamlit_drawable_canvas import st_canvas
 from typing import Optional, Tuple
 import logging
-import requests
-from io import BytesIO
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -62,52 +72,6 @@ class UIComponents:
         return f'<a href="data:file/jpg;base64,{img_str}" download="{filename}">{text}</a>'
     
     @staticmethod
-    def setup_sidebar() -> dict:
-        """Configure sidebar with upload and GitHub sample option."""
-        st.sidebar.title('🖼️ Image Restoration Toolkit')
-        st.sidebar.markdown("---")
-        
-        # Sample image option
-        if st.sidebar.button("🎨 Try Sample Image", help="Load a sample image from our collection"):
-            st.session_state.use_sample = True
-        
-        # Upload option
-        uploaded_file = st.sidebar.file_uploader(
-            "📁 Or Upload Your Image:",
-            type=["png", "jpg", "jpeg"],
-            help="Supported formats: PNG, JPG, JPEG"
-        )
-        
-        # If file is uploaded, clear sample
-        if uploaded_file is not None:
-            st.session_state.use_sample = False
-        
-        # Get sample image if requested
-        sample_image = None
-        sample_file = None
-        
-        if st.session_state.get('use_sample', False):
-            with st.spinner("Loading sample image..."):
-                sample_image, sample_bytes = load_sample_from_github()
-                
-                if sample_image is not None:
-                    sample_file = GitHubSampleFile(sample_bytes)
-                    
-                    # Show sample preview
-                    if st.sidebar.checkbox("👁️ Preview Sample"):
-                        sample_rgb = cv2.cvtColor(sample_image, cv2.COLOR_BGR2RGB)
-                        st.sidebar.image(sample_rgb, caption="Sample Image", width=200)
-                else:
-                    st.sidebar.error("❌ Could not load sample image")
-                    st.session_state.use_sample = False
-        
-        return {
-            "uploaded_file": uploaded_file, 
-            "sample_image": sample_image,
-            "sample_file": sample_file
-        }
-        
-    @staticmethod
     def create_filter_controls(option: str) -> dict:
         """Create appropriate controls based on selected filter option."""
         controls = {}
@@ -134,12 +98,14 @@ class UIComponents:
         
         return controls
 
+
+# Sample image loading functions
 @st.cache_data
 def load_sample_from_github():
     """Load sample image from GitHub repository assets folder."""
     # Replace with your actual GitHub repository URL
     GITHUB_REPO_URL = "https://github.com/adamrangwala/image-restoration-app/main"
-    SAMPLE_IMAGE_PATH = "/assets/old_image.jpg" 
+    SAMPLE_IMAGE_PATH = "/assets/old_image.jpg"
     
     sample_url = GITHUB_REPO_URL + SAMPLE_IMAGE_PATH
     
@@ -149,7 +115,7 @@ def load_sample_from_github():
         
         if response.status_code == 200:
             # Convert bytes to PIL Image
-            image_bytes = BytesIO(response.content)
+            image_bytes = io.BytesIO(response.content)
             pil_image = Image.open(image_bytes)
             
             # Convert PIL to OpenCV format
@@ -172,6 +138,22 @@ def load_sample_from_github():
     except Exception as e:
         st.warning(f"Error processing sample image: {e}")
         return None, None
+
+
+class GitHubSampleFile:
+    """File-like object for GitHub sample images."""
+    def __init__(self, image_bytes, filename="sample_image.jpg"):
+        self.name = filename
+        self.size = len(image_bytes)
+        self._bytes = image_bytes
+        self._position = 0
+    
+    def read(self):
+        return self._bytes
+    
+    def seek(self, pos):
+        self._position = pos
+
 
 # Performance optimizations for cloud deployment
 @st.cache_data
@@ -259,6 +241,52 @@ def show_deployment_info():
     )
 
 
+def setup_sidebar_with_sample():
+    """Configure sidebar with upload and GitHub sample option."""
+    st.sidebar.title('🖼️ Image Restoration Toolkit')
+    st.sidebar.markdown("---")
+    
+    # Sample image option
+    if st.sidebar.button("🎨 Try Sample Image", help="Load a sample image from our collection"):
+        st.session_state.use_sample = True
+    
+    # Upload option
+    uploaded_file = st.sidebar.file_uploader(
+        "📁 Or Upload Your Image:",
+        type=["png", "jpg", "jpeg"],
+        help="Supported formats: PNG, JPG, JPEG"
+    )
+    
+    # If file is uploaded, clear sample
+    if uploaded_file is not None:
+        st.session_state.use_sample = False
+    
+    # Get sample image if requested
+    sample_image = None
+    sample_file = None
+    
+    if st.session_state.get('use_sample', False):
+        with st.spinner("Loading sample image..."):
+            sample_image, sample_bytes = load_sample_from_github()
+            
+            if sample_image is not None:
+                sample_file = GitHubSampleFile(sample_bytes)
+                
+                # Show sample preview
+                if st.sidebar.checkbox("👁️ Preview Sample"):
+                    sample_rgb = cv2.cvtColor(sample_image, cv2.COLOR_BGR2RGB)
+                    st.sidebar.image(sample_rgb, caption="Sample Image", width=200)
+            else:
+                st.sidebar.error("❌ Could not load sample image")
+                st.session_state.use_sample = False
+    
+    return {
+        "uploaded_file": uploaded_file, 
+        "sample_image": sample_image,
+        "sample_file": sample_file
+    }
+
+
 def handle_blur_filters(image: np.ndarray, option: str, 
                        processor: ImageProcessor, ui: UIComponents):
     """Handle median blur and bilateral filter operations."""
@@ -304,98 +332,67 @@ def handle_blur_filters(image: np.ndarray, option: str,
                 unsafe_allow_html=True
             )
 
+
 def handle_inpainting(image: np.ndarray, uploaded_file, 
                      processor: ImageProcessor, ui: UIComponents):
-
+    """Inpainting with persistent background image handling."""
     st.subheader("🎨 Interactive Inpainting")
     st.markdown("Draw on the image to mark areas you want to restore:")
     
-    # Multiple approaches to ensure background image works
-    h, w = image.shape[:2]
-    
-    # Method 1: Try to use the uploaded file directly
-    background_image = None
-    canvas_key = f"canvas_{uploaded_file.name}_{uploaded_file.size}"
-    
-    try:
-        # Reset file pointer
+    # Store background image in session state to persist across widget changes
+    if 'background_image' not in st.session_state or st.session_state.get('last_uploaded_file') != uploaded_file.name:
+        # Reset file pointer and create background image
         uploaded_file.seek(0)
+        pil_image = Image.open(io.BytesIO(uploaded_file.read()))
         
-        # Read file as bytes and create PIL image
-        file_bytes = uploaded_file.read()
-        background_image = Image.open(io.BytesIO(file_bytes))
-        
-        # Resize for canvas display
-        if w > 800:
-            canvas_h, canvas_w = int(h * 800 / w), 800
-        else:
-            canvas_h, canvas_w = h, w
-            
-        background_image = background_image.resize((canvas_w, canvas_h))
-        
-    except Exception as e:
-        st.warning(f"Could not load background from uploaded file: {e}")
-        
-        # Method 2: Convert OpenCV image to PIL as fallback
-        try:
-            image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-            if w > 800:
-                canvas_h, canvas_w = int(h * 800 / w), 800
-                image_rgb = cv2.resize(image_rgb, (canvas_w, canvas_h))
-            else:
-                canvas_h, canvas_w = h, w
-            background_image = Image.fromarray(image_rgb)
-            
-        except Exception as e2:
-            st.error(f"Failed to create background image: {e2}")
-            return
+        # Store in session state
+        st.session_state.background_image = pil_image
+        st.session_state.last_uploaded_file = uploaded_file.name
+        st.session_state.original_image = image.copy()  # Store original image too
     
-    # Show background preview for debugging
-    if st.sidebar.checkbox("🖼️ Show Background Preview"):
-        st.sidebar.image(background_image, caption="Canvas Background", width=200)
-        st.sidebar.write(f"Background size: {background_image.size}")
-        st.sidebar.write(f"Canvas size: {canvas_w} x {canvas_h}")
-    
-    # Canvas controls
+    # Get canvas setup controls
     stroke_width = st.sidebar.slider("Brush Size:", 1, 25, 5)
     
-    # Create canvas with multiple fallback options
-    canvas_result = None
+    # Use stored background image
+    background_image = st.session_state.background_image
+    h, w = image.shape[:2]
     
-    # Standard approach
+    # Resize for canvas if too large
+    if w > 800:
+        canvas_h, canvas_w = int(h * 800 / w), 800
+    else:
+        canvas_h, canvas_w = h, w
+    
+    # Resize background image to match canvas
+    resized_background = background_image.resize((canvas_w, canvas_h))
+    
+    # Create canvas with unique key that includes the image name to force refresh on new uploads
+    canvas_key = f"inpainting_canvas_{st.session_state.last_uploaded_file}"
+    
     canvas_result = st_canvas(
         fill_color='rgba(0, 0, 0, 0)',
         stroke_width=stroke_width,
         stroke_color='#FF0000',
         background_color='',
-        background_image=background_image,
+        background_image=resized_background,  # Use the persistent background
         update_streamlit=True,
         height=canvas_h,
         width=canvas_w,
         drawing_mode='freedraw',
-        key = canvas_key,
+        key=canvas_key,  # Dynamic key prevents conflicts
         display_toolbar=True,
     )
     
-    # Process canvas result
-    if canvas_result and canvas_result.image_data is not None:
-        # Extract mask from canvas
-        mask_data = canvas_result.image_data
+    # Debug: Show background preview
+    if st.sidebar.checkbox("🖼️ Show Background Preview"):
+        st.sidebar.image(resized_background, caption="Canvas Background", width=200)
+    
+    if canvas_result.image_data is not None:
+        # Process mask
+        mask = canvas_result.image_data[:, :, 3]  # Alpha channel
+        mask = np.uint8(mask > 0) * 255  # Binary mask
+        mask = cv2.resize(mask, (w, h))  # Resize back to original image size
         
-        # Check if we have valid mask data
-        if mask_data.shape[-1] >= 4:  # Has alpha channel
-            mask = mask_data[:, :, 3]  # Alpha channel
-        else:
-            # Fallback: use any non-white pixels as mask
-            mask = np.any(mask_data[:, :, :3] != [255, 255, 255], axis=2).astype(np.uint8) * 255
-        
-        # Convert to binary mask
-        mask = np.uint8(mask > 0) * 255
-        
-        # Resize mask back to original image size
-        mask = cv2.resize(mask, (w, h))
-        
-        # Show mask if requested
         if st.sidebar.checkbox('👁️ Show Mask'):
             col1, col2 = st.columns(2)
             with col1:
@@ -405,7 +402,7 @@ def handle_inpainting(image: np.ndarray, uploaded_file,
                 st.subheader("Inpainting Mask")
                 st.image(mask, caption="White areas will be inpainted")
         
-        # Inpainting controls
+        # Inpainting method selection
         st.sidebar.markdown("---")
         inpaint_method = st.sidebar.selectbox(
             '🔧 Inpainting Algorithm:',
@@ -413,10 +410,8 @@ def handle_inpainting(image: np.ndarray, uploaded_file,
             help="Choose the inpainting algorithm to use"
         )
         
-        # Apply inpainting
         if inpaint_method != 'None' and np.any(mask):
-            if st.sidebar.button("🚀 Apply Inpainting", type="primary"):
-                
+            if st.button("🚀 Apply Inpainting", type="primary"):
                 if inpaint_method == 'Compare Both':
                     col1, col2 = st.columns(2)
                     
@@ -429,6 +424,8 @@ def handle_inpainting(image: np.ndarray, uploaded_file,
                             if result_telea is not None:
                                 result_telea_rgb = cv2.cvtColor(result_telea, cv2.COLOR_BGR2RGB)
                                 st.image(result_telea_rgb)
+                                # Store result in session state
+                                st.session_state.result_telea = result_telea_rgb
                     
                     with col2:
                         st.subheader("Navier-Stokes Method")
@@ -439,19 +436,25 @@ def handle_inpainting(image: np.ndarray, uploaded_file,
                             if result_ns is not None:
                                 result_ns_rgb = cv2.cvtColor(result_ns, cv2.COLOR_BGR2RGB)
                                 st.image(result_ns_rgb)
+                                # Store result in session state
+                                st.session_state.result_ns = result_ns_rgb
                     
-                    # Download links
-                    if 'result_telea_rgb' in locals() and 'result_ns_rgb' in locals():
+                    # Download links for both (use session state)
+                    if hasattr(st.session_state, 'result_telea') and hasattr(st.session_state, 'result_ns'):
                         st.sidebar.markdown("---")
                         st.sidebar.markdown("📥 **Download Results:**")
                         st.sidebar.markdown(
-                            ui.create_download_link(Image.fromarray(result_telea_rgb), 
-                                                  'inpaint_telea.jpg', 'Telea Result'),
+                            ui.create_download_link(
+                                Image.fromarray(st.session_state.result_telea), 
+                                'inpaint_telea.jpg', 'Telea Result'
+                            ),
                             unsafe_allow_html=True
                         )
                         st.sidebar.markdown(
-                            ui.create_download_link(Image.fromarray(result_ns_rgb), 
-                                                  'inpaint_ns.jpg', 'NS Result'),
+                            ui.create_download_link(
+                                Image.fromarray(st.session_state.result_ns), 
+                                'inpaint_ns.jpg', 'NS Result'
+                            ),
                             unsafe_allow_html=True
                         )
                 
@@ -475,7 +478,8 @@ def handle_inpainting(image: np.ndarray, uploaded_file,
                                 st.subheader(f"Inpainted - {inpaint_method}")
                                 st.image(result_rgb)
                             
-                            # Download link
+                            # Store result and show download link
+                            st.session_state.current_result = result_rgb
                             st.sidebar.markdown("---")
                             st.sidebar.markdown(
                                 ui.create_download_link(
@@ -487,44 +491,15 @@ def handle_inpainting(image: np.ndarray, uploaded_file,
                             )
         
         elif inpaint_method != 'None' and not np.any(mask):
-            st.warning("⚠️ Please draw on the canvas to create a mask for inpainting.")
+            st.warning("⚠️ Please draw on the image to create a mask for inpainting.")
     
     else:
-        st.info("Canvas is loading... If issues persist, try refreshing the page.")
-        
-        # Alternative: Provide non-canvas inpainting options
-        with st.expander("🔧 Alternative: Upload Mask Method"):
-            st.markdown("If canvas isn't working, you can upload a mask image instead:")
-            mask_file = st.file_uploader("Upload black/white mask (white = inpaint)", 
-                                       type=["png", "jpg"], key="mask_upload")
-            if mask_file:
-                mask_bytes = np.asarray(bytearray(mask_file.read()), dtype=np.uint8)
-                mask_img = cv2.imdecode(mask_bytes, cv2.IMREAD_GRAYSCALE)
-                mask = cv2.resize(mask_img, (w, h))
-                
-                st.image(mask, caption="Uploaded mask")
-                
-                method = st.selectbox("Algorithm:", ["Telea", "Navier-Stokes"], key="alt_method")
-                if st.button("Apply Alternative Inpainting"):
-                    result = safe_process_image(
-                        processor.apply_inpainting, image, mask, method.lower()
-                    )
-                    if result is not None:
-                        result_rgb = cv2.cvtColor(result, cv2.COLOR_BGR2RGB)
-                        st.image(result_rgb, caption=f"Result - {method}")
-
-class GitHubSampleFile:
-    def __init__(self, image_bytes, filename="old_image.jpg"):
-        self.name = filename
-        self.size = len(image_bytes)
-        self._bytes = image_bytes
-        self._position = 0
+        st.info("Draw on the image above to create an inpainting mask.")
     
-    def read(self):
-        return self._bytes
-    
-    def seek(self, pos):
-        self._position = pos
+    # Show previous results if they exist
+    if hasattr(st.session_state, 'current_result'):
+        with st.expander("📋 Previous Result"):
+            st.image(st.session_state.current_result, caption="Last inpainting result")
 
 
 def main():
@@ -544,7 +519,7 @@ def main():
     ui = UIComponents()
     
     # Setup sidebar
-    sidebar_data = setup_sidebar()
+    sidebar_data = setup_sidebar_with_sample()
     uploaded_file = sidebar_data["uploaded_file"]
     sample_image = sidebar_data["sample_image"]
     sample_file = sidebar_data["sample_file"]
@@ -641,6 +616,7 @@ def main():
     except Exception as e:
         logger.error(f"Error processing image: {str(e)}")
         st.error(f"An error occurred while processing the image: {str(e)}")
+
 
 if __name__ == "__main__":
     main()

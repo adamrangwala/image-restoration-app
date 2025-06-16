@@ -1,14 +1,3 @@
-"""
-Interactive Image Restoration Application
-
-A comprehensive Streamlit application for image restoration using various
-computer vision techniques including median blur, bilateral filtering,
-and advanced inpainting algorithms.
-
-Author: [Your Name]
-Date: [Current Date]
-"""
-
 import streamlit as st
 import cv2
 import numpy as np

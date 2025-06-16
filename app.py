@@ -312,7 +312,7 @@ def handle_inpainting(image: np.ndarray, uploaded_file,
         height=canvas_h,
         width=canvas_w,
         drawing_mode='freedraw',
-        key=f"{canvas_key}_attempt_{attempt}",
+        key = canvas_key,
         display_toolbar=True,
     )
     
@@ -519,9 +519,6 @@ def main():
         - Size: {uploaded_file.size / 1024:.1f} KB
         """)
 
-        if st.sidebar.button("🔧 Test Canvas"):
-            debug_canvas_setup()
-        
         # Filter selection
         st.sidebar.markdown("---")
         option = st.sidebar.selectbox(

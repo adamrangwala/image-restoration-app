@@ -243,67 +243,178 @@ def handle_blur_filters(image: np.ndarray, option: str,
                 unsafe_allow_html=True
             )
 
+def debug_canvas_setup():
+    """Debug function to test canvas component."""
+    st.subheader("🔧 Canvas Debug Mode")
+    
+    # Create a simple test image
+    test_image = np.ones((300, 400, 3), dtype=np.uint8) * 255
+    cv2.rectangle(test_image, (50, 50), (350, 250), (255, 0, 0), 3)
+    cv2.putText(test_image, "Test Image", (100, 150), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+    
+    pil_test = Image.fromarray(test_image)
+    
+    try:
+        canvas_result = st_canvas(
+            fill_color='rgba(0, 0, 0, 0)',
+            stroke_width=5,
+            stroke_color='#00FF00',
+            background_image=pil_test,
+            update_streamlit=True,
+            height=300,
+            width=400,
+            drawing_mode='freedraw',
+            key="debug_canvas",
+        )
+        
+        if canvas_result.image_data is not None:
+            st.success("✅ Canvas is working!")
+            st.image(canvas_result.image_data, caption="Canvas output")
+        else:
+            st.warning("Canvas created but no image data")
+            
+    except Exception as e:
+        st.error(f"Canvas failed: {e}")
 
 def handle_inpainting(image: np.ndarray, uploaded_file, 
                      processor: ImageProcessor, ui: UIComponents):
-    """Inpainting with persistent background image handling."""
+    """Enhanced inpainting with multiple fallback methods for background image."""
     st.subheader("🎨 Interactive Inpainting")
     st.markdown("Draw on the image to mark areas you want to restore:")
     
-    # Store background image in session state to persist across widget changes
-    if 'background_image' not in st.session_state or st.session_state.get('last_uploaded_file') != uploaded_file.name:
-        # Reset file pointer and create background image
-        uploaded_file.seek(0)
-        pil_image = Image.open(uploaded_file)
-        
-        # Store in session state
-        st.session_state.background_image = pil_image
-        st.session_state.last_uploaded_file = uploaded_file.name
-        st.session_state.original_image = image.copy()  # Store original image too
-    
-    # Get canvas setup controls
-    stroke_width = st.sidebar.slider("Brush Size:", 1, 25, 5)
-    
-    # Use stored background image
-    background_image = st.session_state.background_image
+    # Multiple approaches to ensure background image works
     h, w = image.shape[:2]
     
-    # Resize for canvas if too large
-    if w > 800:
-        canvas_h, canvas_w = int(h * 800 / w), 800
-    else:
-        canvas_h, canvas_w = h, w
+    # Method 1: Try to use the uploaded file directly
+    background_image = None
+    canvas_key = f"canvas_{uploaded_file.name}_{uploaded_file.size}"
     
-    # Resize background image to match canvas
-    resized_background = background_image.resize((canvas_w, canvas_h))
-    
-    # Create canvas with unique key that includes the image name to force refresh on new uploads
-    canvas_key = f"inpainting_canvas_{st.session_state.last_uploaded_file}"
-    
-    canvas_result = st_canvas(
-        fill_color='rgba(0, 0, 0, 0)',
-        stroke_width=stroke_width,
-        stroke_color='#FF0000',
-        background_color='',
-        background_image=resized_background,  # Use the persistent background
-        update_streamlit=True,
-        height=canvas_h,
-        width=canvas_w,
-        drawing_mode='freedraw',
-        key=canvas_key,  # Dynamic key prevents conflicts
-        display_toolbar=True,
-    )
-    
-    # Debug: Show background preview
-    if st.sidebar.checkbox("🖼️ Show Background Preview"):
-        st.sidebar.image(resized_background, caption="Canvas Background", width=200)
-    
-    if canvas_result.image_data is not None:
-        # Process mask
-        mask = canvas_result.image_data[:, :, 3]  # Alpha channel
-        mask = np.uint8(mask > 0) * 255  # Binary mask
-        mask = cv2.resize(mask, (w, h))  # Resize back to original image size
+    try:
+        # Reset file pointer
+        uploaded_file.seek(0)
         
+        # Read file as bytes and create PIL image
+        file_bytes = uploaded_file.read()
+        background_image = Image.open(io.BytesIO(file_bytes))
+        
+        # Resize for canvas display
+        if w > 800:
+            canvas_h, canvas_w = int(h * 800 / w), 800
+        else:
+            canvas_h, canvas_w = h, w
+            
+        background_image = background_image.resize((canvas_w, canvas_h))
+        
+    except Exception as e:
+        st.warning(f"Could not load background from uploaded file: {e}")
+        
+        # Method 2: Convert OpenCV image to PIL as fallback
+        try:
+            image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+            if w > 800:
+                canvas_h, canvas_w = int(h * 800 / w), 800
+                image_rgb = cv2.resize(image_rgb, (canvas_w, canvas_h))
+            else:
+                canvas_h, canvas_w = h, w
+            background_image = Image.fromarray(image_rgb)
+            
+        except Exception as e2:
+            st.error(f"Failed to create background image: {e2}")
+            return
+    
+    # Show background preview for debugging
+    if st.sidebar.checkbox("🖼️ Show Background Preview"):
+        st.sidebar.image(background_image, caption="Canvas Background", width=200)
+        st.sidebar.write(f"Background size: {background_image.size}")
+        st.sidebar.write(f"Canvas size: {canvas_w} x {canvas_h}")
+    
+    # Canvas controls
+    stroke_width = st.sidebar.slider("Brush Size:", 1, 25, 5)
+    
+    # Create canvas with multiple fallback options
+    canvas_result = None
+    
+    # Try different canvas configurations
+    for attempt in range(3):
+        try:
+            if attempt == 0:
+                # Standard approach
+                canvas_result = st_canvas(
+                    fill_color='rgba(0, 0, 0, 0)',
+                    stroke_width=stroke_width,
+                    stroke_color='#FF0000',
+                    background_color='',
+                    background_image=background_image,
+                    update_streamlit=True,
+                    height=canvas_h,
+                    width=canvas_w,
+                    drawing_mode='freedraw',
+                    key=f"{canvas_key}_attempt_{attempt}",
+                    display_toolbar=True,
+                )
+            elif attempt == 1:
+                # With white background fallback
+                canvas_result = st_canvas(
+                    fill_color='rgba(0, 0, 0, 0)',
+                    stroke_width=stroke_width,
+                    stroke_color='#FF0000',
+                    background_color='#FFFFFF',
+                    background_image=background_image,
+                    update_streamlit=True,
+                    height=canvas_h,
+                    width=canvas_w,
+                    drawing_mode='freedraw',
+                    key=f"{canvas_key}_attempt_{attempt}",
+                    display_toolbar=True,
+                )
+            else:
+                # Simplified version without background
+                st.warning("Background image failed to load. Using simplified canvas.")
+                canvas_result = st_canvas(
+                    fill_color='rgba(255, 255, 255, 0.8)',
+                    stroke_width=stroke_width,
+                    stroke_color='#FF0000',
+                    background_color='#F0F0F0',
+                    update_streamlit=True,
+                    height=canvas_h,
+                    width=canvas_w,
+                    drawing_mode='freedraw',
+                    key=f"{canvas_key}_simple",
+                    display_toolbar=True,
+                )
+                # Show original image separately
+                st.image(cv2.cvtColor(image, cv2.COLOR_BGR2RGB), 
+                        caption="Original Image (draw mask on canvas above)", 
+                        width=canvas_w)
+            
+            # If we get here, canvas was created successfully
+            break
+            
+        except Exception as canvas_error:
+            st.warning(f"Canvas attempt {attempt + 1} failed: {canvas_error}")
+            if attempt == 2:  # Last attempt
+                st.error("Canvas component failed to load. Please refresh the page.")
+                return
+    
+    # Process canvas result
+    if canvas_result and canvas_result.image_data is not None:
+        # Extract mask from canvas
+        mask_data = canvas_result.image_data
+        
+        # Check if we have valid mask data
+        if mask_data.shape[-1] >= 4:  # Has alpha channel
+            mask = mask_data[:, :, 3]  # Alpha channel
+        else:
+            # Fallback: use any non-white pixels as mask
+            mask = np.any(mask_data[:, :, :3] != [255, 255, 255], axis=2).astype(np.uint8) * 255
+        
+        # Convert to binary mask
+        mask = np.uint8(mask > 0) * 255
+        
+        # Resize mask back to original image size
+        mask = cv2.resize(mask, (w, h))
+        
+        # Show mask if requested
         if st.sidebar.checkbox('👁️ Show Mask'):
             col1, col2 = st.columns(2)
             with col1:
@@ -313,7 +424,7 @@ def handle_inpainting(image: np.ndarray, uploaded_file,
                 st.subheader("Inpainting Mask")
                 st.image(mask, caption="White areas will be inpainted")
         
-        # Inpainting method selection
+        # Inpainting controls
         st.sidebar.markdown("---")
         inpaint_method = st.sidebar.selectbox(
             '🔧 Inpainting Algorithm:',
@@ -321,8 +432,10 @@ def handle_inpainting(image: np.ndarray, uploaded_file,
             help="Choose the inpainting algorithm to use"
         )
         
+        # Apply inpainting
         if inpaint_method != 'None' and np.any(mask):
-            if st.button("🚀 Apply Inpainting", type="primary"):
+            if st.sidebar.button("🚀 Apply Inpainting", type="primary"):
+                
                 if inpaint_method == 'Compare Both':
                     col1, col2 = st.columns(2)
                     
@@ -335,8 +448,6 @@ def handle_inpainting(image: np.ndarray, uploaded_file,
                             if result_telea is not None:
                                 result_telea_rgb = cv2.cvtColor(result_telea, cv2.COLOR_BGR2RGB)
                                 st.image(result_telea_rgb)
-                                # Store result in session state
-                                st.session_state.result_telea = result_telea_rgb
                     
                     with col2:
                         st.subheader("Navier-Stokes Method")
@@ -347,25 +458,19 @@ def handle_inpainting(image: np.ndarray, uploaded_file,
                             if result_ns is not None:
                                 result_ns_rgb = cv2.cvtColor(result_ns, cv2.COLOR_BGR2RGB)
                                 st.image(result_ns_rgb)
-                                # Store result in session state
-                                st.session_state.result_ns = result_ns_rgb
                     
-                    # Download links for both (use session state)
-                    if hasattr(st.session_state, 'result_telea') and hasattr(st.session_state, 'result_ns'):
+                    # Download links
+                    if 'result_telea_rgb' in locals() and 'result_ns_rgb' in locals():
                         st.sidebar.markdown("---")
                         st.sidebar.markdown("📥 **Download Results:**")
                         st.sidebar.markdown(
-                            ui.create_download_link(
-                                Image.fromarray(st.session_state.result_telea), 
-                                'inpaint_telea.jpg', 'Telea Result'
-                            ),
+                            ui.create_download_link(Image.fromarray(result_telea_rgb), 
+                                                  'inpaint_telea.jpg', 'Telea Result'),
                             unsafe_allow_html=True
                         )
                         st.sidebar.markdown(
-                            ui.create_download_link(
-                                Image.fromarray(st.session_state.result_ns), 
-                                'inpaint_ns.jpg', 'NS Result'
-                            ),
+                            ui.create_download_link(Image.fromarray(result_ns_rgb), 
+                                                  'inpaint_ns.jpg', 'NS Result'),
                             unsafe_allow_html=True
                         )
                 
@@ -389,8 +494,7 @@ def handle_inpainting(image: np.ndarray, uploaded_file,
                                 st.subheader(f"Inpainted - {inpaint_method}")
                                 st.image(result_rgb)
                             
-                            # Store result and show download link
-                            st.session_state.current_result = result_rgb
+                            # Download link
                             st.sidebar.markdown("---")
                             st.sidebar.markdown(
                                 ui.create_download_link(
@@ -402,16 +506,31 @@ def handle_inpainting(image: np.ndarray, uploaded_file,
                             )
         
         elif inpaint_method != 'None' and not np.any(mask):
-            st.warning("⚠️ Please draw on the image to create a mask for inpainting.")
+            st.warning("⚠️ Please draw on the canvas to create a mask for inpainting.")
     
     else:
-        st.info("Draw on the image above to create an inpainting mask.")
-    
-    # Show previous results if they exist
-    if hasattr(st.session_state, 'current_result'):
-        with st.expander("📋 Previous Result"):
-            st.image(st.session_state.current_result, caption="Last inpainting result")
-
+        st.info("Canvas is loading... If issues persist, try refreshing the page.")
+        
+        # Alternative: Provide non-canvas inpainting options
+        with st.expander("🔧 Alternative: Upload Mask Method"):
+            st.markdown("If canvas isn't working, you can upload a mask image instead:")
+            mask_file = st.file_uploader("Upload black/white mask (white = inpaint)", 
+                                       type=["png", "jpg"], key="mask_upload")
+            if mask_file:
+                mask_bytes = np.asarray(bytearray(mask_file.read()), dtype=np.uint8)
+                mask_img = cv2.imdecode(mask_bytes, cv2.IMREAD_GRAYSCALE)
+                mask = cv2.resize(mask_img, (w, h))
+                
+                st.image(mask, caption="Uploaded mask")
+                
+                method = st.selectbox("Algorithm:", ["Telea", "Navier-Stokes"], key="alt_method")
+                if st.button("Apply Alternative Inpainting"):
+                    result = safe_process_image(
+                        processor.apply_inpainting, image, mask, method.lower()
+                    )
+                    if result is not None:
+                        result_rgb = cv2.cvtColor(result, cv2.COLOR_BGR2RGB)
+                        st.image(result_rgb, caption=f"Result - {method}")
 
 def main():
     """Main application function."""
@@ -502,7 +621,8 @@ def main():
     except Exception as e:
         logger.error(f"Error processing image: {str(e)}")
         st.error(f"An error occurred while processing the image: {str(e)}")
-
+    if st.sidebar.button("🔧 Test Canvas"):
+        debug_canvas_setup()
 
 if __name__ == "__main__":
     main()

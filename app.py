@@ -639,7 +639,7 @@ def main():
             handle_inpainting(original_image, current_file, processor, ui)
     
     except Exception as e:
-        logger.error(f"Error processing image: {str(e}")
+        logger.error(f"Error processing image: {str(e)}")
         st.error(f"An error occurred while processing the image: {str(e)}")
 
 if __name__ == "__main__":

@@ -199,12 +199,11 @@ def main():
     processor = ImageProcessor()
     ui = UIComponents()
 
-    # Initialize state keys
+    # Initialize state keys if they don't exist
     if "image_data" not in st.session_state:
         st.session_state.image_data = None
         st.session_state.file_info = None
         st.session_state.last_upload_id = None
-        st.session_state.source = None
 
     sidebar_data = ui.setup_sidebar()
     uploaded_file = sidebar_data["uploaded_file"]
@@ -213,32 +212,29 @@ def main():
     show_deployment_info()
 
     # --- State Update Logic ---
-    # This section exclusively handles changing the image source.
-    
-    # A. User clicks the sample button
+    # This section handles changing the image source.
+    # The sample button takes precedence.
     if sample_button:
         try:
             with open("assets/old_image.jpg", "rb") as f:
                 img_bytes = f.read()
             st.session_state.image_data = load_and_process_image(io.BytesIO(img_bytes))
             st.session_state.file_info = {'name': 'old_image.jpg', 'size': len(img_bytes), 'bytes': img_bytes}
-            st.session_state.last_upload_id = None # Reset upload ID
-            st.session_state.source = 'sample'
+            st.session_state.last_upload_id = None # Clear the last upload ID
             st.rerun()
         except FileNotFoundError:
             st.error("Sample image 'assets/old_image.jpg' not found.")
             st.session_state.image_data = None
 
-    # B. User uploads a new file
-    elif uploaded_file and uploaded_file.id != st.session_state.get('last_upload_id'):
+    # If sample button not pressed, check for a new file upload.
+    elif uploaded_file and uploaded_file.file_id != st.session_state.get('last_upload_id'):
         st.session_state.image_data = load_and_process_image(uploaded_file)
         st.session_state.file_info = {'name': uploaded_file.name, 'size': uploaded_file.size, 'bytes': uploaded_file.getvalue()}
-        st.session_state.last_upload_id = uploaded_file.id
-        st.session_state.source = 'upload'
+        st.session_state.last_upload_id = uploaded_file.file_id
         st.rerun()
 
     # --- Display Logic ---
-    # This section renders the UI based on the current session state.
+    # This part of the script will only run when the state is stable.
     
     if st.session_state.image_data is None:
         st.info("👆 Please upload an image or use the sample to get started!")

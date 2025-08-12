@@ -108,6 +108,8 @@ class UIComponents:
 def load_and_process_image(_uploaded_file):
     """Cache image loading to improve performance."""
     try:
+        # Ensure file pointer is at the beginning
+        _uploaded_file.seek(0)
         file_bytes = np.asarray(bytearray(_uploaded_file.read()), dtype=np.uint8)
         image = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
         return image
@@ -240,22 +242,17 @@ def handle_inpainting(image: np.ndarray, uploaded_file,
     st.subheader("🎨 Interactive Inpainting")
     st.markdown("Draw on the image to mark areas you want to restore:")
     
-    # Multiple approaches to ensure background image works
     h, w = image.shape[:2]
     
-    # Method 1: Try to use the uploaded file directly
     background_image = None
+    # Use a unique key based on file info to avoid canvas state issues
     canvas_key = f"canvas_{uploaded_file.name}_{uploaded_file.size}"
     
     try:
-        # Reset file pointer
         uploaded_file.seek(0)
-        
-        # Read file as bytes and create PIL image
         file_bytes = uploaded_file.read()
         background_image = Image.open(io.BytesIO(file_bytes))
         
-        # Resize for canvas display
         if w > 800:
             canvas_h, canvas_w = int(h * 800 / w), 800
         else:
@@ -265,8 +262,7 @@ def handle_inpainting(image: np.ndarray, uploaded_file,
         
     except Exception as e:
         st.warning(f"Could not load background from uploaded file: {e}")
-        
-        # Method 2: Convert OpenCV image to PIL as fallback
+        # Fallback to OpenCV image if PIL fails
         try:
             image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
             if w > 800:
@@ -275,24 +271,15 @@ def handle_inpainting(image: np.ndarray, uploaded_file,
             else:
                 canvas_h, canvas_w = h, w
             background_image = Image.fromarray(image_rgb)
-            
         except Exception as e2:
             st.error(f"Failed to create background image: {e2}")
             return
     
-    # Show background preview for debugging
     if st.sidebar.checkbox("🖼️ Show Background Preview"):
         st.sidebar.image(background_image, caption="Canvas Background", width=200)
-        st.sidebar.write(f"Background size: {background_image.size}")
-        st.sidebar.write(f"Canvas size: {canvas_w} x {canvas_h}")
     
-    # Canvas controls
     stroke_width = st.sidebar.slider("Brush Size:", 1, 25, 5)
     
-    # Create canvas with multiple fallback options
-    canvas_result = None
-    
-    # Standard approach
     canvas_result = st_canvas(
         fill_color='rgba(0, 0, 0, 0)',
         stroke_width=stroke_width,
@@ -303,29 +290,21 @@ def handle_inpainting(image: np.ndarray, uploaded_file,
         height=canvas_h,
         width=canvas_w,
         drawing_mode='freedraw',
-        key = canvas_key,
+        key=canvas_key,
         display_toolbar=True,
     )
     
-    # Process canvas result
     if canvas_result and canvas_result.image_data is not None:
-        # Extract mask from canvas
         mask_data = canvas_result.image_data
         
-        # Check if we have valid mask data
-        if mask_data.shape[-1] >= 4:  # Has alpha channel
-            mask = mask_data[:, :, 3]  # Alpha channel
+        if mask_data.shape[-1] >= 4:
+            mask = mask_data[:, :, 3]
         else:
-            # Fallback: use any non-white pixels as mask
             mask = np.any(mask_data[:, :, :3] != [255, 255, 255], axis=2).astype(np.uint8) * 255
         
-        # Convert to binary mask
         mask = np.uint8(mask > 0) * 255
-        
-        # Resize mask back to original image size
         mask = cv2.resize(mask, (w, h))
         
-        # Show mask if requested
         if st.sidebar.checkbox('👁️ Show Mask'):
             col1, col2 = st.columns(2)
             with col1:
@@ -335,7 +314,6 @@ def handle_inpainting(image: np.ndarray, uploaded_file,
                 st.subheader("Inpainting Mask")
                 st.image(mask, caption="White areas will be inpainted")
         
-        # Inpainting controls
         st.sidebar.markdown("---")
         inpaint_method = st.sidebar.selectbox(
             '🔧 Inpainting Algorithm:',
@@ -343,69 +321,35 @@ def handle_inpainting(image: np.ndarray, uploaded_file,
             help="Choose the inpainting algorithm to use"
         )
         
-        # Apply inpainting
         if inpaint_method != 'None' and np.any(mask):
             if st.sidebar.button("🚀 Apply Inpainting", type="primary"):
-                
                 if inpaint_method == 'Compare Both':
                     col1, col2 = st.columns(2)
-                    
                     with col1:
                         st.subheader("Telea Method")
                         with st.spinner("Processing with Telea..."):
-                            result_telea = safe_process_image(
-                                processor.apply_inpainting, image, mask, 'telea'
-                            )
+                            result_telea = safe_process_image(processor.apply_inpainting, image, mask, 'telea')
                             if result_telea is not None:
-                                result_telea_rgb = cv2.cvtColor(result_telea, cv2.COLOR_BGR2RGB)
-                                st.image(result_telea_rgb)
-                    
+                                st.image(cv2.cvtColor(result_telea, cv2.COLOR_BGR2RGB))
                     with col2:
                         st.subheader("Navier-Stokes Method")
                         with st.spinner("Processing with Navier-Stokes..."):
-                            result_ns = safe_process_image(
-                                processor.apply_inpainting, image, mask, 'ns'
-                            )
+                            result_ns = safe_process_image(processor.apply_inpainting, image, mask, 'ns')
                             if result_ns is not None:
-                                result_ns_rgb = cv2.cvtColor(result_ns, cv2.COLOR_BGR2RGB)
-                                st.image(result_ns_rgb)
-                    
-                    # Download links
-                    if 'result_telea_rgb' in locals() and 'result_ns_rgb' in locals():
-                        st.sidebar.markdown("---")
-                        st.sidebar.markdown("📥 **Download Results:**")
-                        st.sidebar.markdown(
-                            ui.create_download_link(Image.fromarray(result_telea_rgb), 
-                                                  'inpaint_telea.jpg', 'Telea Result'),
-                            unsafe_allow_html=True
-                        )
-                        st.sidebar.markdown(
-                            ui.create_download_link(Image.fromarray(result_ns_rgb), 
-                                                  'inpaint_ns.jpg', 'NS Result'),
-                            unsafe_allow_html=True
-                        )
-                
+                                st.image(cv2.cvtColor(result_ns, cv2.COLOR_BGR2RGB))
                 else:
                     method = 'telea' if inpaint_method == 'Telea' else 'ns'
-                    
                     with st.spinner(f"Processing with {inpaint_method}..."):
-                        result = safe_process_image(
-                            processor.apply_inpainting, image, mask, method
-                        )
-                        
+                        result = safe_process_image(processor.apply_inpainting, image, mask, method)
                         if result is not None:
                             result_rgb = cv2.cvtColor(result, cv2.COLOR_BGR2RGB)
-                            
                             col1, col2 = st.columns(2)
                             with col1:
                                 st.subheader("Original")
                                 st.image(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
-                            
                             with col2:
                                 st.subheader(f"Inpainted - {inpaint_method}")
                                 st.image(result_rgb)
-                            
-                            # Download link
                             st.sidebar.markdown("---")
                             st.sidebar.markdown(
                                 ui.create_download_link(
@@ -415,124 +359,79 @@ def handle_inpainting(image: np.ndarray, uploaded_file,
                                 ),
                                 unsafe_allow_html=True
                             )
-        
         elif inpaint_method != 'None' and not np.any(mask):
             st.warning("⚠️ Please draw on the canvas to create a mask for inpainting.")
-    
     else:
         st.info("Canvas is loading... If issues persist, try refreshing the page.")
-        
-        # Alternative: Provide non-canvas inpainting options
-        with st.expander("🔧 Alternative: Upload Mask Method"):
-            st.markdown("If canvas isn't working, you can upload a mask image instead:")
-            mask_file = st.file_uploader("Upload black/white mask (white = inpaint)", 
-                                       type=["png", "jpg"], key="mask_upload")
-            if mask_file:
-                mask_bytes = np.asarray(bytearray(mask_file.read()), dtype=np.uint8)
-                mask_img = cv2.imdecode(mask_bytes, cv2.IMREAD_GRAYSCALE)
-                mask = cv2.resize(mask_img, (w, h))
-                
-                st.image(mask, caption="Uploaded mask")
-                
-                method = st.selectbox("Algorithm:", ["Telea", "Navier-Stokes"], key="alt_method")
-                if st.button("Apply Alternative Inpainting"):
-                    result = safe_process_image(
-                        processor.apply_inpainting, image, mask, method.lower()
-                    )
-                    if result is not None:
-                        result_rgb = cv2.cvtColor(result, cv2.COLOR_BGR2RGB)
-                        st.image(result_rgb, caption=f"Result - {method}")
 
 def main():
     """Main application function."""
-    # Header
     st.title("🖼️ Interactive Image Restoration")
-    st.markdown("""
-    Transform your images using advanced computer vision techniques. 
-    Upload an image and choose from various restoration methods.
-    """)
+    st.markdown("Transform your images using advanced computer vision techniques. Upload an image and choose from various restoration methods.")
     
-    # Add performance info
     add_performance_info()
     
-    # Initialize components
     processor = ImageProcessor()
     ui = UIComponents()
-    
-    # Setup sidebar
+
+    # Initialize session state
+    if "image_to_process" not in st.session_state:
+        st.session_state.image_to_process = None
+        st.session_state.active_file_info = None
+        st.session_state.last_uploaded_file_id = None
+
     sidebar_data = ui.setup_sidebar()
     uploaded_file = sidebar_data["uploaded_file"]
     sample_image_button = sidebar_data["sample_image_button"]
-
-    # Show deployment info
+    
     show_deployment_info()
+
+    # --- Image Loading Logic ---
+    if uploaded_file is not None and uploaded_file.id != st.session_state.get('last_uploaded_file_id'):
+        st.session_state.last_uploaded_file_id = uploaded_file.id
+        st.session_state.image_to_process = load_and_process_image(uploaded_file)
+        st.session_state.active_file_info = {"name": uploaded_file.name, "size": uploaded_file.size, "bytes": uploaded_file.getvalue()}
+        st.rerun()
+
     if sample_image_button:
         try:
             with open("assets/old_image.jpg", "rb") as f:
-                # Create a file-like object that mimics st.UploadedFile
-                class MockUploadedFile:
-                    def __init__(self, name, content):
-                        self.name = name
-                        self._content = io.BytesIO(content)
-                        self.size = len(content)
-                    def read(self, size=-1):
-                        return self._content.read(size)
-                    def seek(self, offset, whence=0):
-                        self._content.seek(offset, whence)
-                    def tell(self):
-                        return self._content.tell()
-
-                file_content = f.read()
-                uploaded_file = MockUploadedFile("old_image.jpg", file_content)
+                file_bytes = f.read()
+                sample_file = io.BytesIO(file_bytes)
+                st.session_state.image_to_process = load_and_process_image(sample_file)
+                st.session_state.active_file_info = {"name": "old_image.jpg", "size": len(file_bytes), "bytes": file_bytes}
+                st.session_state.last_uploaded_file_id = None
+                st.rerun()
         except FileNotFoundError:
             st.error("Sample image 'assets/old_image.jpg' not found.")
-            return
-            
-    if uploaded_file is None:
-        # Display welcome screen
+            st.session_state.image_to_process = None
+
+    # --- Main App Logic ---
+    original_image = st.session_state.get("image_to_process")
+    active_file_info = st.session_state.get("active_file_info")
+
+    if original_image is None:
         col1, col2, col3 = st.columns([1, 2, 1])
         with col2:
             st.info("👆 Please upload an image or use the sample to get started!")
-            st.markdown("""
-            ### Available Features:
-            - **Median Blur**: Remove noise while preserving edges
-            - **Bilateral Filter**: Edge-preserving smoothing
-            - **Image Inpainting**: Remove unwanted objects or restore damaged areas
-            """)
+            st.markdown("### Available Features:\n- **Median Blur**: Remove noise while preserving edges\n- **Bilateral Filter**: Edge-preserving smoothing\n- **Image Inpainting**: Remove unwanted objects or restore damaged areas")
         return
-    
+
     try:
-        # Validate file size first
-        if uploaded_file.size > 50 * 1024 * 1024:  # 50MB limit
+        if active_file_info['size'] > 50 * 1024 * 1024:
             st.error("File too large! Please upload an image smaller than 50MB.")
             return
         
-        # Load image with caching
-        original_image = load_and_process_image(uploaded_file)
-        
-        if original_image is None:
-            st.error("Failed to load image. Please try a different file.")
-            return
-        
-        # Display image warnings
         display_image_warning(original_image)
         
-        # Offer to resize large images
         if not validate_image_size(original_image):
             if st.button("🔄 Resize image for better performance"):
-                original_image = resize_large_image(original_image)
-                st.success("Image resized successfully!")
+                st.session_state.image_to_process = resize_large_image(original_image)
+                st.rerun()
         
-        # Display original image info
         h, w, c = original_image.shape
-        st.sidebar.markdown(f"""
-        **Image Info:**
-        - Dimensions: {w} × {h}
-        - Channels: {c}
-        - Size: {uploaded_file.size / 1024:.1f} KB
-        """)
+        st.sidebar.markdown(f"**Image Info:**\n- Dimensions: {w} × {h}\n- Channels: {c}\n- Size: {active_file_info['size'] / 1024:.1f} KB")
 
-        # Filter selection
         st.sidebar.markdown("---")
         option = st.sidebar.selectbox(
             '🎛️ Choose Restoration Method:',
@@ -540,7 +439,6 @@ def main():
             help="Select the image processing technique to apply"
         )
         
-        # Process based on selection
         if option == 'None':
             st.subheader("Original Image")
             st.image(cv2.cvtColor(original_image, cv2.COLOR_BGR2RGB))
@@ -549,7 +447,18 @@ def main():
             handle_blur_filters(original_image, option, processor, ui)
         
         elif option == 'Image Inpainting':
-            handle_inpainting(original_image, uploaded_file, processor, ui)
+            class MockUploadedFile:
+                def __init__(self, name, size, content_bytes):
+                    self.name = name
+                    self.size = size
+                    self._content = io.BytesIO(content_bytes)
+                def read(self, size=-1):
+                    return self._content.read(size)
+                def seek(self, offset, whence=0):
+                    self._content.seek(offset, whence)
+
+            mock_file = MockUploadedFile(active_file_info['name'], active_file_info['size'], active_file_info['bytes'])
+            handle_inpainting(original_image, mock_file, processor, ui)
     
     except Exception as e:
         logger.error(f"Error processing image: {str(e)}")

@@ -146,7 +146,8 @@ def handle_blur_filters(image: np.ndarray, option: str, processor: ImageProcesso
 
 def handle_inpainting(image: np.ndarray, file_info: dict, processor: ImageProcessor, ui: UIComponents):
     st.subheader("🎨 Interactive Inpainting")
-    st.markdown("Draw on the image to mark areas for restoration:")
+    st.markdown("1. Draw on the image to mark areas for restoration")
+    st.markdown("2. Select the restoration algorithm in the sidebar to compare")
     
     h, w = image.shape[:2]
     

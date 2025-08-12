@@ -71,7 +71,9 @@ class UIComponents:
             help="Supported formats: PNG, JPG, JPEG"
         )
         
-        return {"uploaded_file": uploaded_file}
+        sample_image_button = st.sidebar.button("🖼️ Use Sample Image")
+        
+        return {"uploaded_file": uploaded_file, "sample_image_button": sample_image_button}
     
     @staticmethod
     def create_filter_controls(option: str) -> dict:
@@ -460,15 +462,37 @@ def main():
     # Setup sidebar
     sidebar_data = ui.setup_sidebar()
     uploaded_file = sidebar_data["uploaded_file"]
-    
+    sample_image_button = sidebar_data["sample_image_button"]
+
     # Show deployment info
     show_deployment_info()
-    
+    if sample_image_button:
+        try:
+            with open("assets/old_image.jpg", "rb") as f:
+                # Create a file-like object that mimics st.UploadedFile
+                class MockUploadedFile:
+                    def __init__(self, name, content):
+                        self.name = name
+                        self._content = io.BytesIO(content)
+                        self.size = len(content)
+                    def read(self, size=-1):
+                        return self._content.read(size)
+                    def seek(self, offset, whence=0):
+                        self._content.seek(offset, whence)
+                    def tell(self):
+                        return self._content.tell()
+
+                file_content = f.read()
+                uploaded_file = MockUploadedFile("old_image.jpg", file_content)
+        except FileNotFoundError:
+            st.error("Sample image 'assets/old_image.jpg' not found.")
+            return
+            
     if uploaded_file is None:
         # Display welcome screen
         col1, col2, col3 = st.columns([1, 2, 1])
         with col2:
-            st.info("👆 Please upload an image to get started!")
+            st.info("👆 Please upload an image or use the sample to get started!")
             st.markdown("""
             ### Available Features:
             - **Median Blur**: Remove noise while preserving edges

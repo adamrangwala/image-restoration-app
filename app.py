@@ -211,7 +211,9 @@ def main():
     
     show_deployment_info()
 
-    if uploaded_file and uploaded_file.id != st.session_state.get('last_upload_id'):
+    # Check if a new file has been uploaded. The hasattr check is crucial to prevent
+    # an AttributeError if the uploaded_file object is in an unexpected state.
+    if uploaded_file and hasattr(uploaded_file, 'id') and uploaded_file.id != st.session_state.get('last_upload_id'):
         st.session_state.image_data = load_and_process_image(uploaded_file)
         st.session_state.file_info = {'name': uploaded_file.name, 'size': uploaded_file.size, 'bytes': uploaded_file.getvalue()}
         st.session_state.last_upload_id = uploaded_file.id

@@ -183,7 +183,7 @@ def show_deployment_info():
     # Add GitHub link
     st.sidebar.markdown(
         "[![GitHub](https://img.shields.io/badge/GitHub-Repository-black?logo=github)]"
-        "(https://github.com/yourusername/image-restoration-app)"
+        "(https://github.com/adamrangwala/image-restoration-app)"
     )
 
 

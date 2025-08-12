@@ -105,10 +105,10 @@ class UIComponents:
 
 # Performance optimizations for cloud deployment
 @st.cache_data
-def load_and_process_image(uploaded_file):
+def load_and_process_image(_uploaded_file):
     """Cache image loading to improve performance."""
     try:
-        file_bytes = np.asarray(bytearray(uploaded_file.read()), dtype=np.uint8)
+        file_bytes = np.asarray(bytearray(_uploaded_file.read()), dtype=np.uint8)
         image = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
         return image
     except Exception as e:

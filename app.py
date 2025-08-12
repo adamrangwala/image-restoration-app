@@ -150,7 +150,6 @@ def handle_inpainting(image: np.ndarray, file_info: dict, processor: ImageProces
     
     h, w = image.shape[:2]
     
-    # Create a mock file from bytes for the canvas background
     mock_file = io.BytesIO(file_info['bytes'])
     mock_file.name = file_info['name']
     mock_file.size = file_info['size']
@@ -200,10 +199,12 @@ def main():
     processor = ImageProcessor()
     ui = UIComponents()
 
+    # Initialize state keys
     if "image_data" not in st.session_state:
         st.session_state.image_data = None
         st.session_state.file_info = None
         st.session_state.last_upload_id = None
+        st.session_state.source = None
 
     sidebar_data = ui.setup_sidebar()
     uploaded_file = sidebar_data["uploaded_file"]
@@ -211,26 +212,34 @@ def main():
     
     show_deployment_info()
 
-    # Check if a new file has been uploaded. The hasattr check is crucial to prevent
-    # an AttributeError if the uploaded_file object is in an unexpected state.
-    if uploaded_file and hasattr(uploaded_file, 'id') and uploaded_file.id != st.session_state.get('last_upload_id'):
-        st.session_state.image_data = load_and_process_image(uploaded_file)
-        st.session_state.file_info = {'name': uploaded_file.name, 'size': uploaded_file.size, 'bytes': uploaded_file.getvalue()}
-        st.session_state.last_upload_id = uploaded_file.id
-        st.rerun()
-
+    # --- State Update Logic ---
+    # This section exclusively handles changing the image source.
+    
+    # A. User clicks the sample button
     if sample_button:
         try:
             with open("assets/old_image.jpg", "rb") as f:
                 img_bytes = f.read()
             st.session_state.image_data = load_and_process_image(io.BytesIO(img_bytes))
             st.session_state.file_info = {'name': 'old_image.jpg', 'size': len(img_bytes), 'bytes': img_bytes}
-            st.session_state.last_upload_id = None
+            st.session_state.last_upload_id = None # Reset upload ID
+            st.session_state.source = 'sample'
             st.rerun()
         except FileNotFoundError:
             st.error("Sample image 'assets/old_image.jpg' not found.")
             st.session_state.image_data = None
 
+    # B. User uploads a new file
+    elif uploaded_file and uploaded_file.id != st.session_state.get('last_upload_id'):
+        st.session_state.image_data = load_and_process_image(uploaded_file)
+        st.session_state.file_info = {'name': uploaded_file.name, 'size': uploaded_file.size, 'bytes': uploaded_file.getvalue()}
+        st.session_state.last_upload_id = uploaded_file.id
+        st.session_state.source = 'upload'
+        st.rerun()
+
+    # --- Display Logic ---
+    # This section renders the UI based on the current session state.
+    
     if st.session_state.image_data is None:
         st.info("👆 Please upload an image or use the sample to get started!")
         return
